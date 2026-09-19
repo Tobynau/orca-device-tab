@@ -303,13 +303,8 @@ def scan(host):
 
 # ---------------------------------------------------------------- commands
 
-def cmd_list(cfg, datadirs, args):
-    print("config: %s" % args.config)
-    for datadir in datadirs:
-        print("pages:  %s" % (datadir / PAGES_SUBDIR))
-    if not cfg["printers"]:
-        print("\nNo printers yet. Add one with `install.py add`.")
-        return
+def bindings(datadirs):
+    """Printer id -> the presets currently pointed at its page."""
     bound = {}
     for datadir in datadirs:
         prefix = (datadir / PAGES_SUBDIR).as_uri() + "/"
@@ -319,6 +314,30 @@ def cmd_list(cfg, datadirs, args):
             if url.startswith(prefix):
                 bound.setdefault(url[len(prefix):].replace(".html", ""), []).append(
                     describe(path, data))
+    return bound
+
+
+def known_presets(datadirs):
+    """Every user printer preset name Orca knows about, sorted."""
+    names = set()
+    for datadir in datadirs:
+        for path in preset_files(datadir):
+            if path.parent.name == "physical_printer":
+                continue
+            data = read_preset(path)
+            if data is not None:
+                names.update(preset_names(path, data))
+    return sorted(names)
+
+
+def cmd_list(cfg, datadirs, args):
+    print("config: %s" % args.config)
+    for datadir in datadirs:
+        print("pages:  %s" % (datadir / PAGES_SUBDIR))
+    if not cfg["printers"]:
+        print("\nNo printers yet. Add one with `install.py add`.")
+        return
+    bound = bindings(datadirs)
     for p in cfg["printers"]:
         print("\n%s  %s%s" % (p["id"], p["label"], "  (%s)" % p["note"] if p.get("note") else ""))
         for kind in ("camera", "panel"):
@@ -350,25 +369,17 @@ def pick_presets(datadirs, preset_args):
     the list of name prefixes a printer matches on."""
     if preset_args:
         return list(preset_args)
-    names = []
-    for datadir in datadirs:
-        for path in preset_files(datadir):
-            data = read_preset(path)
-            if data is None or path.parent.name == "physical_printer":
-                continue
-            for name in preset_names(path, data):
-                if name not in names:
-                    names.append(name)
+    names = known_presets(datadirs)
     if not names or not sys.stdin.isatty():
         return []
     print("\nOrca printer presets:")
-    for i, name in enumerate(sorted(names), 1):
+    for i, name in enumerate(names, 1):
         print("  %2d  %s" % (i, name))
     answer = ask("\nBind which? numbers, or a name prefix like 'Voron 2.4'")
     if not answer:
         return []
     if re.fullmatch(r"[\d ,-]+", answer):
-        ordered = sorted(names)
+        ordered = names
         chosen = []
         for part in re.split(r"[ ,]+", answer.strip()):
             if "-" in part:
@@ -454,7 +465,7 @@ def cmd_remove(cfg, datadirs, args):
 
 # ---------------------------------------------------------------- entry point
 
-def main(argv=None):
+def build_parser():
     ap = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -487,14 +498,21 @@ def main(argv=None):
     rm = sub.add_parser("remove", help="forget a printer")
     rm.add_argument("id")
     sub.add_parser("list", help="show printers, bindings and what answers")
+    sub.add_parser("gui", help="the same jobs, in a window")
     sub.add_parser("uninstall", help="unbind presets and delete the pages")
+    return ap
 
-    args = ap.parse_args(argv)
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
     cfg = load(args.config)
     datadirs = orca_datadirs(args.datadir)
 
     if args.command == "list":
         return cmd_list(cfg, datadirs, args)
+    if args.command == "gui":
+        import gui
+        return gui.run(args)
 
     writing = args.command in (None, "add", "set", "remove", "uninstall")
     if writing and not args.dry_run and not args.force and orca_running():
