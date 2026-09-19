@@ -39,6 +39,11 @@ button:hover{background:#35353a;color:#e8e8ea}
 .tabs button.tab{background:transparent;border-color:transparent;color:#8a8a90;padding:5px 14px}
 .tabs button.tab:hover{color:#e8e8ea;background:#2a2a2e}
 .tabs button.tab.on{background:#2c2c30;border-color:#3a3a3f;color:#e8e8ea}
+.tabs .frame-nav{display:flex;gap:4px;margin-left:auto}
+.tabs .frame-nav button{padding:5px 11px;font-size:13px;line-height:1}
+button:disabled{opacity:.35;cursor:default}
+button:disabled:hover{background:#2c2c30;color:#b6b6bb}
+.gone{display:none}
 .sp{flex:1}
 .dot{width:7px;height:7px;border-radius:50%;background:#6b6b70;flex:0 0 auto}
 .dot.live{background:#3ddc84;box-shadow:0 0 6px #3ddc8488}
@@ -182,18 +187,68 @@ APP = """
     view.appendChild(frame);
     view.appendChild(msg);
 
-    var timer = null, loaded = false;
+    var controls = el("div", "frame-nav gone");
+    var back = el("button", "", "\u2190");
+    var fwd = el("button", "", "\u2192");
+    var home = el("button", "", "\u2302");
+    back.title = "Back";
+    fwd.title = "Forward";
+    home.title = "Back to " + p.panel;
+    controls.appendChild(back);
+    controls.appendChild(fwd);
+    controls.appendChild(home);
+
+    // The frame is another origin, so its own history is off limits - but its
+    // navigations land in this page's session history, which back() and
+    // forward() can walk. Load events say how far in we are; a traversal we
+    // asked for is not a step deeper.
+    var timer = null, settle = null, loaded = false, first = true;
+    var depth = 0, deepest = 0, pending = 0;
+
+    function update() {
+      back.disabled = depth <= 0;
+      fwd.disabled = depth >= deepest;
+    }
+
     function load() {
       loaded = false;
+      first = true;
+      depth = 0;
+      deepest = 0;
+      pending = 0;
+      update();
       msg.classList.add("hide");
       frame.src = p.panel;
       clearTimeout(timer);
       timer = setTimeout(function () { if (!loaded) msg.classList.remove("hide"); }, 8000);
     }
-    frame.onload = function () { loaded = true; clearTimeout(timer); msg.classList.add("hide"); };
+
+    function step(dir) {
+      if (dir < 0 ? depth <= 0 : depth >= deepest) return;
+      pending = dir;
+      clearTimeout(settle);
+      settle = setTimeout(function () { pending = 0; }, 2000);
+      if (dir < 0) history.back(); else history.forward();
+    }
+
+    frame.onload = function () {
+      loaded = true;
+      clearTimeout(timer);
+      msg.classList.add("hide");
+      if (first) first = false;
+      else if (pending) { depth += pending; pending = 0; clearTimeout(settle); }
+      else { depth += 1; deepest = depth; }
+      update();
+    };
     retry.onclick = load;
+    back.onclick = function () { step(-1); };
+    fwd.onclick = function () { step(1); };
+    home.onclick = load;
+    update();
+
     return {
       node: view,
+      controls: controls,
       show: function () { if (!frame.src) load(); },
       hide: function () { clearTimeout(timer); }
     };
@@ -243,6 +298,7 @@ APP = """
         views[t[0]].node.classList.toggle("hide", !on);
         if (on) { footUrl.textContent = t[2]; views[t[0]].show(); }
         else views[t[0]].hide();
+        if (views[t[0]].controls) views[t[0]].controls.classList.toggle("gone", !on);
       });
       if (name !== "camera" && views.camera) { footDot.className = "dot"; footState.textContent = ""; }
       store("device-tab:" + p.id, name);
@@ -252,11 +308,12 @@ APP = """
       var b = el("button", "tab", t[1]);
       b.onclick = function () { show(t[0]); };
       buttons[t[0]] = b;
-      tabs.appendChild(b);
+      if (order.length > 1) tabs.appendChild(b);
       main.appendChild(views[t[0]].node);
+      if (views[t[0]].controls) tabs.appendChild(views[t[0]].controls);
     });
 
-    if (order.length > 1) wrap.appendChild(tabs);
+    if (order.length > 1 || views.panel) wrap.appendChild(tabs);
     wrap.appendChild(main);
     wrap.appendChild(foot);
 

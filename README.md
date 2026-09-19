@@ -10,7 +10,8 @@ This gives each printer a local page holding both, and points Orca's Device tab 
 * **Camera** tab — the MJPEG stream, reconnecting on its own when the printer sleeps
   or drops off the network
 * **Control** tab — the printer's own web UI (Mainsail, Fluidd, OctoPrint, DuetWebControl,
-  UltiMaker, whatever it serves) in a frame
+  UltiMaker, whatever it serves) in a frame, with back, forward and home buttons, since the
+  Device tab gives you no way to get back once a link has taken you somewhere
 * A switcher along the top for every printer you have configured, each with a live/offline
   dot, plus an **All** view that puts every camera in one grid
 
@@ -19,17 +20,31 @@ or two clients is not tied up while you are using the control panel.
 
 ## Install
 
-Needs Python 3 and nothing else. Close OrcaSlicer first — it rewrites its user presets on
-exit, and would put back what it had in memory when it started.
+Needs Python 3 and nothing else (the window also wants Tk, which most Python installs
+have — `apt install python3-tk` if yours does not). Close OrcaSlicer first: it rewrites
+its user presets on exit, and would put back what it had in memory when it started.
+
+```bash
+python3 install.py gui
+```
+
+That is the whole thing in one window — the printer list with a tick or a cross against
+each address, and buttons for **Add**, **Edit**, **Remove**, **Recheck**, **Open page**,
+**Apply** and **Remove from Orca**. Add and Edit have a **Scan** button that tries the
+usual camera and web-UI ports on the address and fills the URLs in from whatever answers,
+and a list of your Orca printer presets to pick which ones this printer is. Nothing
+reaches Orca until you press Apply.
+
+The same jobs from a terminal:
 
 ```bash
 python3 install.py add        # asks for a name, an address, and which presets to bind
-python3 install.py            # re-run any time: rewrites the pages, re-binds the presets
+python3 install.py            # rewrite the pages, re-bind the presets
+python3 install.py list       # printers, bound presets, and what answers right now
 ```
 
-`add` scans the address for the usual camera and web-UI ports, suggests URLs from what
-answers, then lists your Orca printer presets so you can pick the ones this printer is.
-Everything it asks can be given as a flag instead:
+`add` scans the address the same way and lists the presets to pick from. Everything it
+asks can be given as a flag instead:
 
 ```bash
 python3 install.py add --label "Voron 2.4" --host 192.168.1.50 \
@@ -46,13 +61,13 @@ config directory first.
 ## Day to day
 
 ```bash
-python3 install.py list             # printers, bound presets, and what answers right now
 python3 install.py set voron --panel "http://192.168.1.50/"
 python3 install.py remove old-ender
 python3 install.py uninstall        # clear the presets, delete the pages
 ```
 
-`list` prints the path of the config file, which is plain JSON and fine to edit by hand:
+`list` and the window both print the path of the config file, which is plain JSON and
+fine to edit by hand:
 
 ```json
 {
@@ -78,7 +93,11 @@ reverse. Run `python3 install.py` after editing to rebuild the pages.
 ## Notes
 
 The pages are static HTML with no dependencies and no server: the camera is an `<img>`
-pointed at the printer's MJPEG endpoint, the control panel an `<iframe>`. Nothing is
+pointed at the printer's MJPEG endpoint, the control panel an `<iframe>`. The frame is a
+different origin, so its history is off limits — but its navigations land in the page's
+own session history, which is what the back and forward buttons walk. A web UI that
+navigates inside itself without loading a page (Mainsail and Fluidd, for instance) moves
+in ways the buttons cannot see; home always takes you back to the configured URL. Nothing is
 proxied, so both have to be reachable from the machine running Orca, and a web UI that
 sends `X-Frame-Options: DENY` will refuse to appear in the frame — the tab says so when
 nothing loads. Printers that expose no HTTP interface at all (FlashForge's 8899 control
